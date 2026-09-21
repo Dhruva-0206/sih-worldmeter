@@ -1,0 +1,27 @@
+# Standalone compose file for the fixture app only. Run alongside (not merged
+# with) worldmonitor's own docker-compose.yml — the two targets are
+# independent and reachable from the host at different ports:
+#
+#   worldmonitor: http://localhost:3000  (started from ../../target-src)
+#   fixture-app:  http://localhost:5001  (started from this file)
+#
+# Usage:
+#   docker compose -f docker/docker-compose.fixture.yml up -d --build
+#
+# fixture.db is ephemeral (container-local /data volume) and reseeded fresh
+# from app.py's init_db() on every container start.
+
+services:
+  fixture-app:
+    build:
+      context: ./fixture-app
+    image: worldmonitor-security-fixture:latest
+    container_name: wmsec-fixture-app
+    ports:
+      - "127.0.0.1:5001:5001"
+    volumes:
+      - fixture-data:/data
+    restart: unless-stopped
+
+volumes:
+  fixture-data:

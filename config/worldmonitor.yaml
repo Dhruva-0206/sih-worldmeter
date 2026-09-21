@@ -1,0 +1,78 @@
+# Primary target: the real worldmonitor codebase (github.com/koala73/worldmonitor),
+# run self-hosted via its own docker-compose.yml (LOCAL_API_MODE=docker).
+#
+# auth_profile: anonymous_session — self-hosted Docker mode has no Clerk/Convex
+# backend. There are no admin/user/viewer accounts to seed; the app only issues
+# an anonymous HMAC-signed `wms_` session cookie. BOLA/privilege-escalation
+# modules are intentionally left disabled below — there is no object-ownership
+# or role model on this target to exercise them against. See fixture.yaml for
+# the target that demonstrates those modules.
+
+target:
+  name: worldmonitor
+  description: >
+    Self-hosted instance of github.com/koala73/worldmonitor (Vite/React SPA +
+    Vercel-style serverless API handlers + Redis), run from the project's own
+    docker-compose.yml with LOCAL_API_MODE=docker.
+  auth_profile: anonymous_session
+  base_url: "http://localhost:3000"
+
+  # Every npm workspace root in the monorepo, each with its own lockfile.
+  source_paths:
+    - "../../target-src"
+  lockfile_roots:
+    - "../../target-src"
+    - "../../target-src/blog-site"
+    - "../../target-src/cli"
+    - "../../target-src/pro-test"
+    - "../../target-src/consumer-prices-core"
+    - "../../target-src/scripts"
+
+  openapi_spec: "../../target-src/docs/api/worldmonitor.openapi.yaml"
+
+  accounts: []  # none — anonymous_session profile
+
+  # Endpoint names/params each DAST module targets. Every value here was
+  # verified by hand against the live self-hosted instance before being
+  # wired into the orchestrator — see the DAST module docstrings for the
+  # specific curl probes that grounded each one.
+  dast_params:
+    session_issue_path: /api/wm-session
+    session_cookie_name: wm-session
+    ssrf_proxy_path: /api/rss-proxy
+    ssrf_param_name: url
+    mcp_path: /api/mcp
+    mcp_tool_name: get_earthquakes
+    oauth_metadata_path: /api/oauth-protected-resource
+    rate_limit_path: /api/wm-session
+    rate_limit_method: POST
+    security_headers_path: /
+    info_disclosure_error_probe_paths:
+      - /api/wm-session
+    api_fuzz_max_endpoints: 40
+
+modules:
+  sast:
+    secrets_scanner: true
+    auth_pattern_checker: true
+    access_control_checker: true
+    injection_pattern_checker: true
+    dependency_scanner: true
+
+  dast:
+    auth_tester: true              # wms_ session replay/fixation/expiry
+    bola_tester: false             # no object-ownership model on this target
+    privilege_escalation: false    # no role model on this target
+    injection_tester: true         # safe-marker probes on query params
+    cors_checker: true             # allowlist + translate.goog bypass edge cases
+    ssrf_prober: true              # safe probes on rss-proxy/geo/reverse-geocode
+    rate_limit_tester: true        # trusted-proxy / IP-spoof bypass, IETF headers
+    info_disclosure: true          # /api/local-* should 403 in docker mode
+    security_headers_checker: true # HSTS/CSP/X-Frame-Options/etc, graded A+-F
+    oauth_mcp_checker: true        # OAuth + MCP grant flow checks
+    api_fuzzer: true               # driven by docs/api/worldmonitor.openapi.yaml
+
+safety:
+  max_requests_per_second: 5
+  request_timeout_seconds: 8
+  max_findings_per_module: 200

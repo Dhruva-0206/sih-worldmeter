@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ report_title }}</title>
+<style>
+  /* Kept to a CSS2.1-ish subset (no flexbox/grid) so the same markup renders
+     correctly both in a browser and through xhtml2pdf for the PDF export. */
+  body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #1a1a2e; margin: 0; padding: 0; background: #f4f5f7; font-size: 13px; }
+  .page { max-width: 960px; margin: 0 auto; padding: 24px; background: #ffffff; }
+  h1 { font-size: 24px; margin: 0 0 4px 0; color: #0a0f0a; }
+  h2 { font-size: 18px; margin: 28px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid #1f2937; color: #0a0f0a; }
+  h3 { font-size: 14px; margin: 0; }
+  .subtitle { color: #555; margin-bottom: 18px; font-size: 12px; }
+  .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+  .meta-table td { padding: 4px 8px; border: 1px solid #ddd; font-size: 12px; }
+  .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  .summary-table th, .summary-table td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 12px; }
+  .summary-table th { background: #1f2937; color: #ffffff; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; color: #ffffff; }
+  .sev-critical { background: #7f1d1d; }
+  .sev-high { background: #b91c1c; }
+  .sev-medium { background: #b45309; }
+  .sev-low { background: #1d4ed8; }
+  .sev-info { background: #6b7280; }
+  .status-confirmed { background: #065f46; }
+  .status-unconfirmed { background: #78716c; }
+  .finding { border: 1px solid #ddd; border-radius: 4px; margin-bottom: 14px; padding: 12px 14px; page-break-inside: avoid; }
+  .finding-title { font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+  .finding-meta { margin-bottom: 8px; }
+  .finding-meta span { margin-right: 6px; }
+  .field-label { font-weight: bold; color: #374151; margin-top: 8px; display: block; }
+  .field-body { margin: 2px 0 6px 0; color: #1f2937; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 8px 10px; border-radius: 4px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-wrap: break-word; }
+  code { font-family: 'Consolas', 'Courier New', monospace; }
+  .target-banner { background: #0a0f0a; color: #ffffff; padding: 10px 14px; border-radius: 4px; margin: 26px 0 12px 0; }
+  .target-banner .role { color: #9ca3af; font-size: 11px; }
+  .grade { font-size: 28px; font-weight: bold; }
+  .toc { font-size: 12px; }
+  .toc a { color: #1d4ed8; text-decoration: none; }
+  .small { font-size: 11px; color: #666; }
+  .footer { margin-top: 30px; padding-top: 10px; border-top: 1px solid #ddd; font-size: 11px; color: #777; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>{{ report_title }}</h1>
+  <div class="subtitle">Generated {{ generated_at }} &middot; White-Box Security Assessment Framework (SIH 2026, PS 26163)</div>
+
+  <table class="meta-table">
+    <tr><td><strong>Targets assessed</strong></td><td>{{ targets|join(', ') }}</td></tr>
+    <tr><td><strong>Total findings</strong></td><td>{{ findings|length }}</td></tr>
+    <tr><td><strong>Confirmed</strong></td><td>{{ confirmed_count }}</td></tr>
+    <tr><td><strong>Unconfirmed / needs review</strong></td><td>{{ unconfirmed_count }}</td></tr>
+  </table>
+
+  <h2>Executive Summary</h2>
+  <table class="summary-table">
+    <tr><th>Severity</th><th>Count</th></tr>
+    {% for sev, count in severity_counts.items() %}
+    <tr><td><span class="badge sev-{{ sev }}">{{ sev|upper }}</span></td><td>{{ count }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="small">{{ executive_summary_note }}</p>
+
+  {% for target in targets %}
+  <div class="target-banner">
+    <h3>{{ target_labels.get(target, target) }}</h3>
+    <div class="role">{{ target_descriptions.get(target, '') }}</div>
+  </div>
+
+  <table class="summary-table">
+    <tr><th>Severity</th><th>Count</th></tr>
+    {% for sev, count in per_target_severity_counts[target].items() %}
+    <tr><td><span class="badge sev-{{ sev }}">{{ sev|upper }}</span></td><td>{{ count }}</td></tr>
+    {% endfor %}
+  </table>
+
+  {% for finding in findings_by_target[target] %}
+  <div class="finding">
+    <div class="finding-title">{{ finding.title }}</div>
+    <div class="finding-meta">
+      <span class="badge sev-{{ finding.severity }}">{{ finding.severity|upper }}</span>
+      <span class="badge status-{{ finding.status }}">{{ finding.status|upper }}</span>
+      <span class="small">{{ finding.rule_id }} &middot; {{ finding.category }} &middot; confidence: {{ finding.confidence }}</span>
+    </div>
+
+    <span class="field-label">CVSS 3.1</span>
+    <div class="field-body">{{ finding.cvss_score }} &mdash; <code>{{ finding.cvss_vector }}</code></div>
+
+    <span class="field-label">Description</span>
+    <div class="field-body">{{ finding.description }}</div>
+
+    {% if finding.code_location %}
+    <span class="field-label">Affected component (source)</span>
+    <div class="field-body">
+      {{ finding.code_location.file_path }}{% if finding.code_location.line_number %}:{{ finding.code_location.line_number }}{% endif %}
+      {% if finding.code_location.snippet %}<pre><code>{{ finding.code_location.snippet }}</code></pre>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if finding.http_evidence %}
+    <span class="field-label">Affected component (endpoint)</span>
+    <div class="field-body">
+      {% for ev in finding.http_evidence %}
+        {{ ev.method }} {{ ev.url }} {% if ev.status_code %}&rarr; {{ ev.status_code }}{% endif %}{% if ev.role_used %} (as {{ ev.role_used }}){% endif %}<br>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if finding.poc %}
+    <span class="field-label">Reproduction / PoC</span>
+    <pre><code>{{ finding.poc }}</code></pre>
+    {% endif %}
+
+    {% if finding.business_impact %}
+    <span class="field-label">Business impact</span>
+    <div class="field-body">{{ finding.business_impact }}</div>
+    {% endif %}
+
+    {% if finding.remediation %}
+    <span class="field-label">Remediation</span>
+    <div class="field-body">{{ finding.remediation }}</div>
+    {% endif %}
+
+    {% if finding.correlated_with %}
+    <span class="field-label">Correlation</span>
+    <div class="field-body small">Cross-confirmed with finding id(s): {{ finding.correlated_with|join(', ') }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endfor %}
+
+  <div class="footer">
+    Generated by the worldmonitor-security-framework White-Box Security Assessment Framework.
+    All dynamic testing was performed exclusively against locally-deployed, isolated instances — never against any live/production host.
+  </div>
+
+</div>
+</body>
+</html>

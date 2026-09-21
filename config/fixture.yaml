@@ -1,0 +1,75 @@
+# Secondary target: our own small intentionally-vulnerable app
+# (docker/fixture-app), seeded with admin/standard_user/viewer accounts and
+# per-user-owned objects. Exists purely to prove the BOLA, privilege-
+# escalation, and injection DAST modules work end-to-end — worldmonitor
+# itself has no role model or object-ownership model to exercise them
+# against (see config/worldmonitor.yaml).
+#
+# Every vulnerability this target has is intentional and documented in
+# docker/fixture-app/app.py.
+
+target:
+  name: fixture-app
+  description: >
+    Deliberately-vulnerable Flask API (docker/fixture-app) with seeded
+    admin/standard_user/viewer accounts and per-user-owned notes. Used to
+    demonstrate BOLA/IDOR, JWT alg=none privilege escalation, mass-assignment
+    role tampering, and SQL injection detection end-to-end.
+  auth_profile: role_based
+  base_url: "http://localhost:5001"
+
+  source_paths:
+    - "../docker/fixture-app"
+  lockfile_roots: []  # requirements.txt is scanned by dependency_scanner directly
+
+  accounts:
+    - role: admin
+      username: admin
+      password: "AdminPass123!"
+    - role: standard_user
+      username: alice
+      password: "AlicePass123!"
+    - role: viewer
+      username: bob
+      password: "BobPass123!"
+
+  dast_params:
+    login_path: /api/login
+    logout_path: /api/logout
+    register_path: /api/register
+    whoami_path: /api/whoami
+    profile_update_path: /api/profile
+    admin_path: /api/admin/users
+    notes_create_path: /api/notes
+    notes_object_path_template: /api/notes/{id}
+    search_path: /api/search
+    search_param_name: q
+    token_field: token
+    target_role: admin
+    security_headers_path: /api/health
+
+modules:
+  sast:
+    secrets_scanner: true
+    auth_pattern_checker: true
+    access_control_checker: true
+    injection_pattern_checker: true
+    dependency_scanner: true
+
+  dast:
+    auth_tester: true              # weak password policy, logout non-invalidation
+    bola_tester: true               # GET /api/notes/<id> ownership bypass
+    privilege_escalation: true      # JWT alg=none + PATCH /api/profile mass assignment
+    injection_tester: true          # GET /api/search SQLi (safe boolean/error markers)
+    cors_checker: true
+    ssrf_prober: false               # fixture has no outbound-fetch endpoints
+    rate_limit_tester: false         # fixture has no rate limiting to probe
+    info_disclosure: true            # SQL error message reflection on /api/search
+    security_headers_checker: true
+    oauth_mcp_checker: false         # fixture has no OAuth/MCP surface
+    api_fuzzer: false                # no OpenAPI spec for the fixture; routes are DAST-probed directly
+
+safety:
+  max_requests_per_second: 10
+  request_timeout_seconds: 5
+  max_findings_per_module: 200
